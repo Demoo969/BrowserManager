@@ -73,6 +73,9 @@ class BrowserManager:
     async def _memory_watcher(self):
         watcher_id = id(asyncio.current_task())
         while not self._stop_event.is_set():
+            if not self._browser_context:
+                log_info("Контекст браузера отсутствует, останавливаем memory_watcher", self._profile_name)
+                break
             try:
                 if not self.memory.renderer_PIDs:
                     await asyncio.wait_for(
