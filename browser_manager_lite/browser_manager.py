@@ -5,6 +5,7 @@ from adspower.async_api.playwright import Profile
 from adspower.async_api.http_client import HTTPClient
 from httpx import ConnectError, ReadTimeout
 from playwright.async_api import Page, BrowserContext
+from playwright._impl._errors import TargetClosedError
 from utils.logger import log_info, log_error, log_exception, log_warning
 
 from typing import Awaitable, Callable, TypeVar
@@ -256,11 +257,19 @@ class BrowserManager:
 
             except (ConnectError, ReadTimeout):
                 log_exception(f"{action_name} — ошибка соединения", self._profile_name)
+                
+            except TargetClosedError:
+                log_info(f"{action_name} — уже закрыто (OK)", self._profile_name)
+                return None
 
             except Exception as e:
-                err_str = str(e)
-                if "User_id is not open" in err_str or "profile is not running" in err_str:
-                    log_info("Профиль уже был закрыт. Ошибок нет.")
+                err_str = str(e).lower()
+                if (
+                    "user_id is not open" in err_str
+                    or "profile is not running" in err_str
+                    or "has been closed" in err_str
+                ):
+                    log_info(f"{action_name} — уже закрыто (OK)", self._profile_name)
                     break
                 log_exception(f"{action_name} — ошибка в работе", self._profile_name)
 
