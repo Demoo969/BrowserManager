@@ -1,16 +1,40 @@
-import asyncio
-import psutil
-import time
+import asyncio,psutil,time, json
+from utils.logger import logger
 from adspower.async_api.playwright import Profile
 from adspower.async_api.http_client import HTTPClient
 from httpx import ConnectError, ReadTimeout
 from playwright.async_api import Page, BrowserContext
 from playwright._impl._errors import TargetClosedError
-from utils.logger import log_info, log_error, log_exception, log_warning
 
-from typing import Awaitable, Callable, TypeVar
+from typing import Awaitable, Callable, TypeVar,Literal
 
 T = TypeVar("T")
+
+TINY=["--window-size=1920,4120","--window-position=0,0","--force-device-scale-factor=0.3"]
+NORMAL=["--window-size=1920,1030", "--window-position=0,0"]
+
+params = [
+    "--enable-precise-memory-info",
+    "--js-flags=--expose-gc",
+    "--disable-background-timer-throttling",
+    "--disable-renderer-backgrounding",
+    "--disable-dev-shm-usage",
+]
+
+def log_info(msg: str, name: str | None = None) -> None:
+    logger.info("[%s] %s", name or "", msg)
+
+
+def log_error(msg: str, name: str | None = None) -> None:
+    logger.error("[%s] %s", name or "", msg)
+
+
+def log_warning(msg: str, name: str | None = None) -> None:
+    logger.warning("[%s] %s", name or "", msg)
+
+
+def log_exception(msg: str, name: str | None = None) -> None:
+    logger.exception("[%s] %s", name or "", msg)
 
 
 class AdsPowerAPILimiter:
@@ -63,13 +87,14 @@ class BrowserManager:
         • получение renderer процессов
         • мониторинг потребления памяти Chrome
     """
-    def __init__(self, config: dict, user_id: str, _profile_name: str | None = None):
+    def __init__(self, config: dict, user_id: str, _profile_name: str | None = None, mode:Literal['tiny','normal']='normal'):
         self.config: dict = config
         self.user_id: str = user_id
         self._profile_name = _profile_name
         self.browser_context: BrowserContext | None = None
         self._profile: Profile | None = None
         self.renderer_PIDs: list[int] = []
+        self.mode = mode
 
     async def __aenter__(self):
         await self.open_profile()
@@ -82,7 +107,7 @@ class BrowserManager:
     async def open_profile(
         self,
         headless: bool = False,
-        clear_cache: bool = False,
+        clear_cache: bool = True,
         max_retries: int = 3,
         retry_delay: int = 5,
     ) -> None:
@@ -101,7 +126,8 @@ class BrowserManager:
             Задержка между попытками запуска (секунды).
         """
         log_info("Инициализация AdsPower Playwright...", self._profile_name)
-
+        window_args = TINY if self.mode == "tiny" else NORMAL
+        launch_args = json.dumps(window_args + params)
         HTTPClient.set_port(self.config["local_port"])
         HTTPClient.set_timeout(30.0)
 
@@ -120,9 +146,10 @@ class BrowserManager:
                 browser = await self._profile.get_browser(
                     ip_tab=False,
                     new_first_tab=False,
-                    launch_args='["--start-maximized","--enable-precise-memory-info", "--js-flags= --expose-gc", "--disable-background-timer-throttling","--disable-renderer-backgrounding","--disable-dev-shm-usage"]',  # type: ignore
+                    launch_args = launch_args, #type:ignore
                     headless=headless,
                     clear_cache_after_closing=clear_cache,
+                    close_tabs=True
                 )
             if not browser:
                 raise RuntimeError("Браузер не инициализирован")
@@ -137,26 +164,31 @@ class BrowserManager:
 
         log_info("Браузер открыт успешно", self._profile_name)
 
-    async def get_main_page(self, start: str|None = None) -> Page:
-        """
-        Получение главной страницы браузера с переходом на стартовый URL.
-
-        Parameters
-        ----------
-        start : str
-            URL для перехода после открытия страницы.
-        """
-        if not start: start='https://x.com/home'
+    async def get_main_page(self) -> Page:
         if not self.browser_context:
             raise RuntimeError("Браузер не инициализирован")
         try:
-            # Закрываем лишние вкладки, оставляем одну
             pages = self.browser_context.pages
-            if len(pages) > 1:
-                for page in pages[1:]:
-                    await page.close()
-            page = pages[0] if pages else await self.browser_context.new_page()
-            await page.goto(start, timeout=30000)
+            log_info(f"pages при старте: {len(pages)}", self._profile_name)
+
+            # Ищем первую вкладку на x.com — она уже залогинена
+            page = next(
+                (p for p in pages if "x.com" in (p.url or "")),
+                None,
+            )
+
+            if page is None:
+                # Нет вкладки с x.com — берём первую обычную или создаём новую
+                if not pages:
+                    await asyncio.sleep(3)
+                    pages = self.browser_context.pages
+                page = pages[0] if pages else await self.browser_context.new_page()
+                log_info(f"Открываем x.com/home (текущий URL: {page.url!r})", self._profile_name)
+                await page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=60_000)
+            else:
+                log_info(f"Используем вкладку x.com: {page.url!r}", self._profile_name)
+
+            await page.bring_to_front()
             return page
         except Exception as e:
             log_error(f"Ошибка в get_main_page: {str(e)}", self._profile_name)
