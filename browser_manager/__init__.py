@@ -3,18 +3,21 @@ from .base import ManagerBase
 from .memory import MemoryManager
 from playwright.async_api import Page, BrowserContext
 from parser_logic.utils.logger import log_error,log_warning,log_exception,log_info
+from typing import Literal
 
 class BrowserManager:
-    def __init__(self, config: dict, 
-        user_id: str, 
-        profile_name: str|None = None, 
-        memory_limit: float | None = None,  
-        memory_check_interval: int = 120
+    def __init__(self, config: dict,
+        user_id: str,
+        profile_name: str|None = None,
+        memory_limit: float | None = None,
+        memory_check_interval: int = 120,
+        mode: Literal['tiny', 'normal'] = 'normal',
     ):
         self._browser_context : BrowserContext | None = None
         self.config: dict = config # для типизации есть идея но пока без реализации возможно конфиг отсюда уберется в будущем чтобы стать чище
         self._user_id: str = user_id
         self._profile_name = profile_name
+        self.mode = mode
         # проверка памяти и очистка по надобнасти
         self.memory_limit = memory_limit
         self.memory_check_interval = memory_check_interval

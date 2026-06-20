@@ -15,17 +15,16 @@ from .mixin import ManagerDataMixin
 
 T = TypeVar("T")
 
+TINY = ["--window-size=1920,4120", "--window-position=0,0", "--force-device-scale-factor=0.3"]
+NORMAL = ["--window-size=1920,1030", "--window-position=0,0"]
+
 params = [
-    "--window-size=1920,1030",
-    "--window-position=0,0",
     "--enable-precise-memory-info",
     "--js-flags=--expose-gc",
     "--disable-background-timer-throttling",
     "--disable-renderer-backgrounding",
     "--disable-dev-shm-usage",
 ]
-
-launch_args = json.dumps(params)
 
 class AdsPowerAPILimiter:
     """
@@ -103,6 +102,9 @@ class ManagerBase(ManagerDataMixin):
         """
         log_info("Инициализация AdsPower Playwright...", self.profile_name)
 
+        window_args = TINY if self._manager.mode == "tiny" else NORMAL
+        launch_args = json.dumps(window_args + params)
+
         HTTPClient.set_port(self._manager.config["local_port"])
         HTTPClient.set_timeout(30.0)
 
@@ -121,7 +123,7 @@ class ManagerBase(ManagerDataMixin):
                 browser = await self._profile.get_browser(
                     ip_tab=False,
                     new_first_tab=False,
-                    launch_args= launch_args,  # type: ignore
+                    launch_args=launch_args,  # type: ignore
                     headless=headless,
                     clear_cache_after_closing=clear_cache,
                 )
